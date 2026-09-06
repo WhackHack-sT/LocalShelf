@@ -1,0 +1,84 @@
+name: Build LocalShelf APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Reconstruct Android project from flat upload
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p app/src/main/java/com/localshelf/app
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/values
+
+          # The uploaded root build.gradle.kts is the app module build file.
+          cp build.gradle.kts app/build.gradle.kts
+
+          cat > build.gradle.kts <<'ROOT_GRADLE'
+          plugins {
+              id("com.android.application") version "9.4.0" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
+          }
+          ROOT_GRADLE
+
+          cp AndroidManifest.xml app/src/main/AndroidManifest.xml
+          cp MainActivity.kt app/src/main/java/com/localshelf/app/MainActivity.kt
+          cp MediaScanner.kt app/src/main/java/com/localshelf/app/MediaScanner.kt
+          cp Models.kt app/src/main/java/com/localshelf/app/Models.kt
+          cp PlayerScreen.kt app/src/main/java/com/localshelf/app/PlayerScreen.kt
+          cp Prefs.kt app/src/main/java/com/localshelf/app/Prefs.kt
+          cp Thumbnail.kt app/src/main/java/com/localshelf/app/Thumbnail.kt
+          cp ic_launcher.xml app/src/main/res/drawable/ic_launcher.xml
+          cp styles.xml app/src/main/res/values/styles.xml
+
+          test -f settings.gradle.kts
+          test -f app/build.gradle.kts
+          test -f app/src/main/AndroidManifest.xml
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-37" "build-tools;36.0.0" "platform-tools"
+
+      - name: Set up Gradle 9.6
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK
+        run: |
+          test -f app/build/outputs/apk/debug/app-debug.apk
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalShelf-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
